@@ -350,4 +350,14 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     assigned_edge_cost=epsilon**p/4 * (W[e1Pos].item()+W[e2Pos].item())-0.5*epsilon**p * (WX1-WXW+_1YW-WYW)
     half_assigned_edge_cost=eta*epsilon**p * (WX1-WXW+_1YW-WYW)
 
-    return dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_assigned_edge_cost
+    # For numerical stability
+    dxy=np.max(dxy,0)
+    loc_cost=np.max(loc_cost,0)
+    miss_cost=np.max(miss_cost,0)
+    false_cost=np.max(false_cost,0)
+    assigned_edge_cost=np.max(assigned_edge_cost,0)
+    unassigned_edge_cost=np.max(unassigned_edge_cost,0)
+    half_assigned_edge_cost=np.max(half_assigned_edge_cost,0)
+
+    return dxy**(1/p),loc_cost**(1/p),miss_cost**(1/p),false_cost**(1/p),\
+        assigned_edge_cost**(1/p),unassigned_edge_cost**(1/p),half_assigned_edge_cost**(1/p)
