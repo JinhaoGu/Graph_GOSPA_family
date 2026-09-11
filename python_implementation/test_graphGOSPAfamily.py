@@ -313,9 +313,12 @@ def test_input_validation_and_integer_attributes():
         for value in (-adj,np.array([[0.,1.],[0.,0.]])):
             rejects({name:value},'%s rejects negative edges or directed edges'%name)
     for flag in (0,1):
-        out=graph_gospa_metric_family(attr,attr,np.eye(2),np.eye(2),
-                                      3,1,1,0.3,0.7,flag=flag)
-        check(np.allclose(out,0),'self-loops accepted, flag=%d'%flag)
+        same=graph_gospa_metric_family(attr,attr,np.eye(2),np.eye(2),
+                                       3,1,1,0.3,0.7,flag=flag)
+        changed=graph_gospa_metric_family(attr,attr,np.eye(2),np.zeros((2,2)),
+                                          3,1,1,0.3,0.7,flag=flag)
+        check(np.allclose(same,0),'self-loops accepted, flag=%d'%flag)
+        check(changed[0]>0,'self-loop mismatch contributes, flag=%d'%flag)
     rejects(dict(X_attr=np.zeros((0,1)),Y_attr=np.zeros((0,1)),
                  X_adj=np.zeros((0,0)),Y_adj=np.zeros((0,0)),p=0),
             'empty graphs still validate hyperparameters')
