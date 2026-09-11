@@ -60,34 +60,73 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     Input:
     X_attr: NxD array of node attributes for graph X
     Y_attr: MxD array of node attributes for graph Y
-    X_adj: NxN adjacency matrix for graph X
-    Y_adj: MxM adjacency matrix for graph Y
+    X_adj: NxN non-negative, symmetric adjacency matrix with zero diagonal
+    Y_adj: MxM non-negative, symmetric adjacency matrix with zero diagonal
     c: penalty for missing or false nodes
     p: p-norm
     epsilon: penalty for edge mismatch
     beta: hyperparameter controlling the penalty for unassigned edges
     eta: hyperparameter controlling the penalty for half-assigned edges,
-        with 0<=beta<=eta<=1
+        with 0<=beta<=eta<=1, and eta>=0.5 when flag=0
     flag: integrality of the linear program (0 continuous, 1 integer)
 
     Returns:
     graph GOSPA metric family cost, localisation cost, miss node cost, false node cost,
     assigned edge cost, unassigned edge cost, half-assigned edge cost
 
-    dxy is the p-th root of the total cost, so it is the metric itself.  The
+    dxy is the p-th root of the total cost: the exact distance for flag=1,
+    or its LP lower bound for flag=0. The LP generally does not satisfy the
+    triangle inequality. The
     six cost components are the costs themselves, not their p-th roots, so
-    they add up to dxy**p for every p.  They are only worth reading for p=1,
-    where the costs and the metric are in the same units and the components
-    add up to dxy directly.
+    they add up to dxy**p up to numerical tolerance for every p. For p=1,
+    the costs and the distance are in the same units and add up directly.
+    For p>1 the components still describe costs before taking the root.
 
     The decomposition is exact for an integer assignment (flag=1).  The
     continuous relaxation (flag=0) can return a fractional assignment, for
     which assigned_edge_cost can be negative; the function warns when this
     happens.
     '''
+    parameters=dict(c=c,p=p,epsilon=epsilon,beta=beta,eta=eta,flag=flag)
+    for name,value in parameters.items():
+        scalar=np.asarray(value)
+        if scalar.ndim!=0 or scalar.dtype.kind not in 'biuf' or not np.isfinite(scalar):
+            raise ValueError('%s must be a finite real scalar.'%name)
+        parameters[name]=float(scalar)
+    c,p,epsilon,beta,eta,flag=(parameters[name] for name in
+                              ('c','p','epsilon','beta','eta','flag'))
+    if c<=0 or epsilon<=0 or p<1:
+        raise ValueError('The graph GOSPA metric family requires c>0, epsilon>0 and p>=1.')
+    if flag not in (0,1):
+        raise ValueError('flag must be 0 (continuous) or 1 (integer).')
     if not 0<=beta<=eta<=1:
         raise ValueError('The graph GOSPA metric family requires '
                          '0<=beta<=eta<=1. Got beta=%r, eta=%r.'%(beta,eta))
+    if flag==0 and eta<0.5:
+        raise ValueError('The LP relaxation (flag=0) requires eta>=0.5 '
+                         'for non-negative costs. Use flag=1 for eta<0.5.')
+
+    arrays=[]
+    for name,value in (('X_attr',X_attr),('Y_attr',Y_attr),
+                       ('X_adj',X_adj),('Y_adj',Y_adj)):
+        array=np.asarray(value)
+        if array.ndim!=2 or array.dtype.kind not in 'biuf':
+            raise ValueError('%s must be a two-dimensional real numeric array.'%name)
+        # Convert before subtraction to avoid overflow in integer attributes.
+        array=array.astype(float,copy=False)
+        if not np.isfinite(array).all():
+            raise ValueError('%s must contain only finite values.'%name)
+        arrays.append(array)
+    X_attr,Y_attr,X_adj,Y_adj=arrays
+    if X_attr.shape[1]!=Y_attr.shape[1]:
+        raise ValueError('X_attr and Y_attr must have the same feature dimension.')
+    for name,attr,adj in (('X',X_attr,X_adj),('Y',Y_attr,Y_adj)):
+        n=attr.shape[0]
+        if adj.shape!=(n,n):
+            raise ValueError('%s_adj must be square and match the number of attribute rows.'%name)
+        if (adj<0).any() or not np.array_equal(adj,adj.T) or np.any(np.diag(adj)!=0):
+            raise ValueError('%s_adj must be non-negative and symmetric with zero diagonal '
+                             '(an undirected graph without self-loops).'%name)
 
     n_x=len(X_adj)
     n_y=len(Y_adj)
@@ -331,6 +370,11 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
 
     dxy=res.fun
     W=res.x
+    tolerance=1e-9*max(1.0,abs(dxy))
+    if not np.isfinite(dxy) or dxy < -tolerance:
+        raise RuntimeError('The linear programme returned an invalid total cost: %r.'%dxy)
+    if dxy<0:
+        dxy=0.0
     Wx=np.reshape(W[0:nxny2],(n_x+1,n_y+1),order='F')
     loc_cost=np.sum(np.multiply(DAB[0:n_x,0:n_y],Wx[0:n_x,0:n_y]))
     false_cost=np.sum(np.multiply(DAB[n_x,0:n_y],Wx[n_x,0:n_y]))
@@ -368,13 +412,13 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
                       'negative. Use flag=1 for an exact decomposition.',
                       RuntimeWarning,stacklevel=2)
 
-    # dxy and the node costs are non-negative by construction, so a negative
-    # value is floating point noise and clamping it is safe.  The same is true
+    # The validated objective is non-negative in exact arithmetic; materially
+    # negative totals are rejected above. Node costs are non-negative as well.
+    # The same is true
     # of the unassigned and half assigned edge costs, because w>=0 and
     # u-sum(w)>=0.  assigned_edge_cost is a difference of two of the linear
     # programme's variables and the relaxation can make it genuinely negative,
     # so it is reported as it is; see the warning above.
-    dxy=np.maximum(dxy,0)
     loc_cost=np.maximum(loc_cost,0)
     miss_cost=np.maximum(miss_cost,0)
     false_cost=np.maximum(false_cost,0)

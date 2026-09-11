@@ -5,6 +5,9 @@ status if a test fails.  It needs numpy and scipy only.
 '''
 import sys
 import warnings
+from unittest.mock import patch
+
+import graphGOSPAfamily as implementation
 
 import numpy as np
 
@@ -45,11 +48,13 @@ def test_components_add_up_in_the_pth_power():
     '''The components add up to dxy**p.
 
     Only dxy is rooted, so the components add up to the total cost for every p.
-    They are only worth interpreting for p=1, where dxy is that total.
+    For p=1, dxy is that total; for p>1, the components remain costs.
     '''
     print('the components add up to dxy**p')
     for p,epsilon,beta,eta in GRID:
         for flag in (0,1):
+            if flag==0 and eta<0.5:
+                continue
             rng=np.random.default_rng(7)
             worst=0.0
             with warnings.catch_warnings():
@@ -198,7 +203,7 @@ def test_eta_below_beta_raises():
             check(True,'beta=%r, eta=%r raises ValueError'%(beta,eta))
     for beta,eta in [(0.0,0.0),(0.3,0.7),(1.0,1.0),(0.0,1.0)]:
         try:
-            graph_gospa_metric_family(attr,attr,adj,adj,3,1,1,beta,eta)
+            graph_gospa_metric_family(attr,attr,adj,adj,3,1,1,beta,eta,flag=1)
             check(True,'beta=%r, eta=%r accepted'%(beta,eta))
         except ValueError:
             check(False,'beta=%r, eta=%r was rejected but is valid'%(beta,eta))
@@ -262,13 +267,97 @@ def test_identical_graphs():
                   %(p,flag,np.array2string(out,precision=6)))
 
 
+def test_input_validation_and_integer_attributes():
+    print('input validation and integer attributes')
+    attr=np.array([[0.],[1.]])
+    adj=np.array([[0.,1.],[1.,0.]])
+    base=dict(X_attr=attr,Y_attr=attr,X_adj=adj,Y_adj=adj,
+              c=3,p=1,epsilon=1,beta=0.3,eta=0.7)
+
+    def rejects(changes,label):
+        try:
+            graph_gospa_metric_family(**dict(base,**changes))
+        except ValueError:
+            check(True,label)
+        else:
+            check(False,label)
+
+    for name in ('c','p','epsilon','beta','eta','flag'):
+        for value in (np.nan,np.inf,-np.inf,[1],1j,'1'):
+            rejects({name:value},'%s=%r rejected'%(name,value))
+    for name,value in [('c',0),('c',-1),('epsilon',0),('epsilon',-1),
+                       ('p',0),('p',0.5),('p',-1),('flag',-1),
+                       ('flag',0.5),('flag',2),('flag',3)]:
+        rejects({name:value},'%s=%r rejected'%(name,value))
+
+    # This formerly produced a raw LP objective of -5.89, then returned 0.
+    rejects(dict(Y_attr=attr+0.01,c=0.1,epsilon=10,beta=0.1,eta=0.2),
+            'eta<0.5 rejected for the relaxation')
+    for beta,eta in ((0,0),(0.1,0.2),(0.3,0.49)):
+        out=graph_gospa_metric_family(**dict(base,beta=beta,eta=eta,flag=1))
+        check(np.allclose(out,0),'eta<0.5 remains valid for integer assignments')
+    for beta in (0,0.3,0.5):
+        out=graph_gospa_metric_family(**dict(base,beta=beta,eta=0.5))
+        check(np.allclose(out,0),'eta=0.5 accepted at the LP boundary')
+
+    for name in ('X_attr','Y_attr','X_adj','Y_adj'):
+        for value in (np.array([0.,1.]),np.array([[np.nan]]),
+                      np.array([[np.inf]]),np.array([[1j]]),np.array([['1']])):
+            rejects({name:value},'%s rejects malformed/non-finite data'%name)
+    rejects(dict(Y_attr=np.zeros((2,2))),'different feature dimensions rejected')
+    rejects(dict(X_adj=np.zeros((2,3))),'non-square adjacency rejected')
+    rejects(dict(X_adj=np.zeros((3,3))),'node count mismatch rejected')
+    rejects(dict(X_adj=np.zeros((0,0)),Y_adj=np.zeros((0,0))),
+            'empty fast path does not hide nonempty attributes')
+    for name in ('X_adj','Y_adj'):
+        for value in (-adj,np.array([[0.,1.],[0.,0.]]),np.eye(2)):
+            rejects({name:value},'%s rejects negative edges, directed edges or self-loops'%name)
+    rejects(dict(X_attr=np.zeros((0,1)),Y_attr=np.zeros((0,1)),
+                 X_adj=np.zeros((0,0)),Y_adj=np.zeros((0,0)),p=0),
+            'empty graphs still validate hyperparameters')
+
+    zero=np.zeros((1,1))
+    for dtype,left,right in ((np.uint8,0,255),(np.int8,-128,127)):
+        x=np.array([[left]],dtype=dtype)
+        y=np.array([[right]],dtype=dtype)
+        for flag in (0,1):
+            forward=graph_gospa_metric_family(x,y,zero,zero,1000,1,1,0.3,0.7,flag=flag)[0]
+            backward=graph_gospa_metric_family(y,x,zero,zero,1000,1,1,0.3,0.7,flag=flag)[0]
+            check(abs(forward-255)<1e-9 and abs(backward-255)<1e-9,
+                  '%s flag=%d preserves distance and symmetry'%(dtype.__name__,flag))
+    out=graph_gospa_metric_family([[0.]],[[2.]],[[0.]],[[0.]],10,2,1,0.3,0.7)
+    check(abs(out[0]-2)<1e-9 and abs(out[1]-4)<1e-9,
+          'numeric lists accepted; p=2 returns distance 2 and localisation cost 4')
+
+
+def test_invalid_solver_objective():
+    print('solver objective validation')
+    original=implementation.linprog
+    attr=np.array([[0.]])
+    adj=np.zeros((1,1))
+    for value in (-1.0,np.nan,np.inf,-1e-12):
+        def solve(*args,**kwargs):
+            result=original(*args,**kwargs)
+            result.fun=value
+            return result
+        with patch.object(implementation,'linprog',side_effect=solve):
+            try:
+                out=graph_gospa_metric_family(attr,attr,adj,adj,3,1,1,0.3,0.7)
+            except RuntimeError:
+                check(value!=-1e-12,'invalid solver objective %r rejected'%value)
+            else:
+                check(value==-1e-12 and np.allclose(out,0),
+                      'only tolerance-sized negative objectives are clamped')
+
+
 def main():
     for test in [test_components_add_up_in_the_pth_power,
                  test_p_one_adds_up_directly,test_no_nan,test_nan_regression,
                  test_negative_component_warns,test_integer_solution_is_exact,
                  test_weighted_adjacency,test_eta_below_beta_raises,
                  test_empty_graphs,test_metric_properties,
-                 test_identical_graphs]:
+                 test_identical_graphs,test_input_validation_and_integer_attributes,
+                 test_invalid_solver_objective]:
         test()
         print()
     print('='*60)

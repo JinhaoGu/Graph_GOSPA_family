@@ -31,7 +31,7 @@ c=3 # penalty for missing or false nodes
 p=1 # p-norm
 epsilon=1 # penalty for edge mismatch
 beta=0.3 # penalty for unassigned edges
-eta=0.7 # penalty for half-assigned edges (0 <= beta <= eta <= 1)
+eta=0.7 # penalty for half-assigned edges (0 <= beta <= eta <= 1; eta >= 0.5 for LP)
 
 dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_assigned_edge_cost=\
     graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta)
@@ -39,14 +39,29 @@ dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_a
 
 ### Hyperparameters
 
-`beta` and `eta` must satisfy `0 <= beta <= eta <= 1`; the function raises a
-`ValueError` otherwise. The values above are the ones used in [1]. Setting
+`beta` and `eta` must satisfy `0 <= beta <= eta <= 1`. The default LP relaxation
+(`flag=0`) additionally requires `eta >= 0.5` for non-negative objective costs,
+as explained in Section III-E3 of [1]. Integer assignments (`flag=1`) also
+allow `eta < 0.5`. The function raises `ValueError` for invalid parameters.
+`c` and `epsilon` must be positive, `p >= 1`, and all parameters must be finite
+real scalars. `flag` must be either `0` or `1`.
+
+Inputs describe undirected graphs without self-loops. Attribute arrays must
+be two-dimensional, have the same feature dimension, and contain finite real
+numbers. Each adjacency matrix must be square, symmetric, non-negative, have
+a zero diagonal, and match its graph's number of attribute rows. Non-negative
+edge weights are supported. Attributes are converted to floating point before
+subtraction to avoid integer overflow. For an empty graph, use an attribute
+array of shape `(0, D)` and an adjacency matrix of shape `(0, 0)`.
+
+The values above are the ones used in [1]. Setting
 `beta=0` and `eta=0.5` reduces the metric family to the graph GOSPA metric
 of [2].
 
-`dxy` is the p-th root of the total cost, so it is the metric itself. The six
+`dxy` is the p-th root of the total cost: the exact distance for `flag=1`, or
+its LP lower bound for `flag=0`. The six
 cost components are the costs, not their p-th roots, so they add up to
-`dxy**p` for every `p`:
+`dxy**p` up to numerical tolerance for every `p`:
 
 ```python
 dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_assigned_edge_cost=\
@@ -87,10 +102,18 @@ dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_a
 ```
 
 `flag=0` solves a relaxation, so it is faster but returns a lower bound of the
-metric and can produce a fractional assignment. The cost components are exact
+metric and can produce a fractional assignment. It generally does **not**
+satisfy the triangle inequality. The special case `beta=0, eta=0.5` recovers
+the original LP graph GOSPA metric, which has metric guarantees [1, Section
+III-E3]. The cost components are exact
 only for an integer assignment: with a fractional one `assigned_edge_cost` can
 be negative, and the function issues a `RuntimeWarning` when that can happen.
 Use `flag=1` when you need an exact decomposition.
+
+A solver result with a materially negative or non-finite total cost raises
+`RuntimeError`; only tolerance-sized negative totals are rounded to zero.
+Negative assigned-edge components caused by fractional assignments are kept
+so that the components continue to add up to the objective cost.
 
 ## Tests
 
