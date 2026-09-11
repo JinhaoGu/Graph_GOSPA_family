@@ -44,9 +44,11 @@ dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_a
 `beta=0` and `eta=0.5` reduces the metric family to the graph GOSPA metric
 of [2].
 
-Each returned value is the p-th root of the corresponding cost. The costs add
-up, so the p-th powers of the components add up to the p-th power of the total.
-The returned values therefore add up to the total only for `p=1`.
+`dxy` is the p-th root of the total cost, so it is the metric itself. The six
+cost components are the costs, not their p-th roots, so they add up to
+`dxy**p` for every `p`. They are only worth reading for `p=1`, where the costs
+and the metric are in the same units and the components add up to `dxy`
+directly.
 
 ### Integer and relaxed assignments
 
