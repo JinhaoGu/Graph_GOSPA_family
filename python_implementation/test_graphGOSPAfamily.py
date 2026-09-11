@@ -310,8 +310,12 @@ def test_input_validation_and_integer_attributes():
     rejects(dict(X_adj=np.zeros((0,0)),Y_adj=np.zeros((0,0))),
             'empty fast path does not hide nonempty attributes')
     for name in ('X_adj','Y_adj'):
-        for value in (-adj,np.array([[0.,1.],[0.,0.]]),np.eye(2)):
-            rejects({name:value},'%s rejects negative edges, directed edges or self-loops'%name)
+        for value in (-adj,np.array([[0.,1.],[0.,0.]])):
+            rejects({name:value},'%s rejects negative edges or directed edges'%name)
+    for flag in (0,1):
+        out=graph_gospa_metric_family(attr,attr,np.eye(2),np.eye(2),
+                                      3,1,1,0.3,0.7,flag=flag)
+        check(np.allclose(out,0),'self-loops accepted, flag=%d'%flag)
     rejects(dict(X_attr=np.zeros((0,1)),Y_attr=np.zeros((0,1)),
                  X_adj=np.zeros((0,0)),Y_adj=np.zeros((0,0)),p=0),
             'empty graphs still validate hyperparameters')

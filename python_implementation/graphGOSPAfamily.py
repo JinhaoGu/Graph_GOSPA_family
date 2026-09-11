@@ -60,8 +60,8 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     Input:
     X_attr: NxD array of node attributes for graph X
     Y_attr: MxD array of node attributes for graph Y
-    X_adj: NxN non-negative, symmetric adjacency matrix with zero diagonal
-    Y_adj: MxM non-negative, symmetric adjacency matrix with zero diagonal
+    X_adj: NxN non-negative, symmetric adjacency matrix
+    Y_adj: MxM non-negative, symmetric adjacency matrix
     c: penalty for missing or false nodes
     p: p-norm
     epsilon: penalty for edge mismatch
@@ -124,9 +124,8 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
         n=attr.shape[0]
         if adj.shape!=(n,n):
             raise ValueError('%s_adj must be square and match the number of attribute rows.'%name)
-        if (adj<0).any() or not np.array_equal(adj,adj.T) or np.any(np.diag(adj)!=0):
-            raise ValueError('%s_adj must be non-negative and symmetric with zero diagonal '
-                             '(an undirected graph without self-loops).'%name)
+        if (adj<0).any() or not np.array_equal(adj,adj.T):
+            raise ValueError('%s_adj must be non-negative and symmetric.'%name)
 
     n_x=len(X_adj)
     n_y=len(Y_adj)
