@@ -9,6 +9,26 @@ import scipy.sparse as sps
 from scipy.optimize import linprog
 
 
+def sparse_from_index_pairs(rows,cols,value_of,shape):
+    '''Build a sparse matrix that holds value_of(row,col) at the given pairs.
+
+    The pairs are made unique first.  The dense code wrote a 1 into a mask at
+    these pairs, so a repeated pair contributed a single 1, whereas a sparse
+    constructor adds repeated entries together.
+
+    rows, cols: index arrays of the same length.
+    value_of:   callable applied to the unique (row,col) arrays.
+    '''
+    rows=np.asarray(rows,dtype=np.int64)
+    cols=np.asarray(cols,dtype=np.int64)
+    if rows.size==0:
+        return sps.csr_matrix(shape,dtype=float)
+    unique=np.unique(rows*shape[1]+cols)
+    rows=unique//shape[1]
+    cols=unique%shape[1]
+    return sps.csr_matrix((value_of(rows,cols),(rows,cols)),shape=shape,dtype=float)
+
+
 def signed_pth_root(value,p):
     '''p-th root that keeps the sign of its argument.
 
@@ -124,13 +144,8 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     Q=Q_x+Q_y
     
     #Compute Q+ and Q-
-    Q_p=Q.todense()
-    Q_m=Q.todense()
-    Q_p[Q_p<0]=0
-    Q_m[Q_m>0]=0
-
-    Q_plus=np.sum(Q_p,axis=1).transpose()
-    Q_minus=np.sum(Q_m,axis=1).transpose()
+    Q_plus=np.asarray(Q.maximum(0).sum(axis=1)).reshape(1,WLen)
+    Q_minus=np.asarray(Q.minimum(0).sum(axis=1)).reshape(1,WLen)
     
     
     #Compute coefficients for half assigned edges 
@@ -163,8 +178,7 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     index_y=np.arange(n_y*(n_x+1))
     index_y=index_y.flatten(order='F')
 
-    Aeq1=np.zeros([n_y,nParam])
-    Aeq1[index_x,index_y]=1
+    Aeq1=sps.csr_matrix((np.ones(len(index_x)),(index_x,index_y)),shape=(n_y,nParam))
     beq1=np.ones([n_y,1])
 
     #Constraint 2
@@ -176,18 +190,16 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     index_y=index_y+index_y2
     index_y=index_y.flatten(order='F')
     index_y=index_y.astype(int)
-    Aeq2=np.zeros([n_x,nParam])
-    Aeq2[index_x,index_y]=1
+    Aeq2=sps.csr_matrix((np.ones(len(index_x)),(index_x,index_y)),shape=(n_x,nParam))
     beq2=np.ones([n_x,1])
 
     #Constraint 3
-    ones_u=np.zeros((1,nParam))
-    ones_u[0,uPos]=-1
+    ones_u=sps.csr_matrix((-np.ones(uLen),(np.zeros(uLen,dtype=int),uPos)),shape=(1,nParam))
     Aueq=r1+ones_u
     bueq=np.zeros((1,1))
 
     #All equality constraints
-    Aeq=np.vstack((Aeq1,Aeq2,Aueq))
+    Aeq=sps.vstack((Aeq1,Aeq2,Aueq)).tocsr()
     beq=np.vstack((beq1,beq2,bueq))
 
     
@@ -196,29 +208,15 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     #inequality constraints for linear terms
 
     #Constraint 1
-    index_minus_x=0
-    index_minus_y=WLen+index_minus_x
-    value_minus=-1
-    index_one_x=np.zeros(nxny)
-    index_one_x=index_one_x.astype(int)
-    index_one_y=WLen+eLen+np.arange(nxny)
-    Ae1=np.zeros((1,nParam))
-    Ae1[index_one_x,index_one_y]=1
-    Ae1[index_minus_x,index_minus_y]=-1
+    # sum(h1)-e1<=0 and sum(h2)-e2<=0
+    Ae1=sps.csr_matrix((np.hstack((np.ones(h1Len),[-1.0])),
+                        (np.zeros(h1Len+1,dtype=int),np.hstack((h1Pos,e1Pos)))),
+                       shape=(1,nParam))
+    Ae2=sps.csr_matrix((np.hstack((np.ones(h2Len),[-1.0])),
+                        (np.zeros(h2Len+1,dtype=int),np.hstack((h2Pos,e2Pos)))),
+                       shape=(1,nParam))
 
-    index_minus_x=0
-    index_minus_y=WLen+index_minus_x+1
-    value_minus=-1
-    index_one_x=np.hstack((index_minus_x,np.zeros(nxny)))
-    index_one_x=index_one_x.astype(int)
-
-    index_one_y=WLen+eLen+nxny+np.arange(nxny)
-    index_one_y=np.hstack((index_minus_y,index_one_y))
-    Ae2=np.zeros((1,nParam))
-    Ae2[index_one_x,index_one_y]=1
-    Ae2[index_minus_x,index_minus_y]=-1
-
-    A1=np.vstack((Ae1,Ae2))
+    A1=sps.vstack((Ae1,Ae2))
 
 
     #Constraint 2
@@ -231,19 +229,13 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     index_1_y=np.tile(index_1_y,(1,n_x))
     index_1_y=np.reshape(index_1_y,(nxny*n_x),order='F')
     index_1_y=index_1_y.astype(int)
-    mask=np.zeros([nxny,(n_x+1)*n_y])
-    mask[index_1_x,index_1_y]=1
-
-    A_adj1=np.tile(np.hstack((X_adj,np.zeros([n_x,1]))),(1,n_y))
-    ind=np.tile(np.arange(n_x),(n_y,1))
-    ind=ind.flatten(order='F')
-
-    new_adj=np.zeros([nxny,(n_x+1)*n_y])
-
-    for i in range(nxny):
-        new_adj[i,:]=A_adj1[ind[i],:]
-        
-    A_adj_1=np.hstack((np.multiply(new_adj,mask),np.zeros([nxny,n_x+1])))
+    # Row r repeats row r//n_y of X_adj, padded with a zero column for the
+    # dummy node and tiled once per node of Y.  The trailing n_x+1 columns of
+    # the block are zero, which takes the width up to WLen.
+    X_pad=np.hstack((X_adj,np.zeros([n_x,1])))
+    A_adj_1=sparse_from_index_pairs(index_1_x,index_1_y,
+                                    lambda r,c: X_pad[r//n_y,c%(n_x+1)],
+                                    (nxny,WLen))
 
     index_2_x=np.tile(np.arange(nxny),(n_y,1))
     index_2_x=index_2_x.flatten(order='F')
@@ -253,31 +245,18 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     index_2_y=np.tile(index_2_y,(1,n_y)).T
     index_2_y=index_2_y.flatten(order='F')
     index_2_y=index_2_y.astype(int)
-    mask=np.zeros([nxny,(n_x+1)*n_y])
-    mask[index_2_x,index_2_y]=1
+    # Column c repeats column c//(n_x+1) of Y_adj transposed.
+    A_adj_2=sparse_from_index_pairs(index_2_x,index_2_y,
+                                    lambda r,c: Y_adj[c//(n_x+1),r%n_y],
+                                    (nxny,WLen))
 
-    A_adj2=np.tile(Y_adj.T,(n_x,1))
-    ind=np.tile(np.arange(n_y),(n_x+1,1))
-    ind=ind.flatten(order='F')
-    new_adj=np.zeros([nxny,(n_x+1)*n_y])
+    zeros_e=sps.csr_matrix((nxny,eLen))
+    zeros_tail=sps.csr_matrix((nxny,WLen+uLen))
+    eye_h1=sps.hstack((sps.eye(h1Len,format='csr'),sps.csr_matrix((h1Len,h2Len))))
+    eye_h2=sps.hstack((sps.csr_matrix((h2Len,h1Len)),sps.eye(h2Len,format='csr')))
 
-    for i in range((n_x+1)*n_y):
-        new_adj[:,i]=A_adj2[:,ind[i]]
-
-    A_adj_2=np.hstack((np.multiply(new_adj,mask),np.zeros([nxny,n_x+1])))
-    A2_adj=np.hstack(
-                        (A_adj_1-A_adj_2,np.zeros([nxny,eLen]),
-                        -1*(np.zeros([nxny,h1Len+h2Len])+np.hstack((np.eye(h1Len),np.zeros([h2Len,h2Len])))),
-                        np.zeros([nxny,WLen+uLen])
-                        )
-                    )
-
-    A3_adj=np.hstack(
-                        (A_adj_2-A_adj_1,np.zeros([nxny,eLen]),
-                        -1*(np.zeros([nxny,h1Len+h2Len])+np.hstack((np.eye(h1Len),np.zeros([h2Len,h2Len])))),
-                        np.zeros([nxny,WLen+uLen])
-                        )
-                    )
+    A2_adj=sps.hstack((A_adj_1-A_adj_2,zeros_e,-eye_h1,zeros_tail))
+    A3_adj=sps.hstack((A_adj_2-A_adj_1,zeros_e,-eye_h1,zeros_tail))
 
 
     #Contraint 3
@@ -291,24 +270,20 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     index_1_y=np.tile(index_1_y.T,(1,n_y))
     index_1_y=index_1_y.flatten(order='F')
     index_1_y=index_1_y.astype(int)
-    mask=np.zeros([nxny,(n_x+1)*n_y])
-    mask[index_1_x,index_1_y]=1
-
-
-    A_adj3=np.repeat(np.repeat(Y_adj,n_x,axis=1),n_x,axis=0)
-
     ind=np.tile(np.arange(n_y)*(n_x+1),(n_x,1))
     ind2=np.tile(np.arange(n_x),(np.size(ind,1),1)).T
     ind=ind+ind2
     ind=ind.flatten(order='F')
     ind=ind.astype(int)
-
-    new_adj=np.zeros([nxny,(n_x+1)*n_y])
-
-    for i in range(nxny):
-        new_adj[:,ind[i]]=A_adj3[:,i]
-
-    A_adj_3=np.hstack((np.multiply(new_adj,mask),np.zeros([nxny,n_x+1])))
+    # Column ind[i] holds column i of Y_adj, expanded n_x times along both
+    # axes.  inverse_ind maps a column of the block back to that index.
+    inverse_ind=np.full(WLen,-1,dtype=np.int64)
+    inverse_ind[ind]=np.arange(nxny)
+    A_adj_3=sparse_from_index_pairs(
+        index_1_x,index_1_y,
+        lambda r,c: np.where(inverse_ind[c]>=0,
+                             Y_adj[r//n_x,np.maximum(inverse_ind[c],0)//n_x],0.0),
+        (nxny,WLen))
 
 
 
@@ -322,45 +297,37 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     index_2_y=index_2_y.astype(int)
 
 
-    mask=np.zeros([nxny,(n_x+1)*n_y])
-    mask[index_2_x,index_2_y]=1
+    # X_adj transposed, zero padded for the dummy node and tiled n_y times
+    # along both axes.
+    XT_pad=np.hstack((X_adj.T,np.zeros([n_x,1])))
+    A_adj_4=sparse_from_index_pairs(index_2_x,index_2_y,
+                                    lambda r,c: XT_pad[r%n_x,c%(n_x+1)],
+                                    (nxny,WLen))
 
-    A_adj4=np.tile(np.hstack((X_adj.T,np.zeros([n_x,1]))),(n_y,n_y))
-    new_adj=A_adj4
+    A4_adj=sps.hstack((A_adj_3-A_adj_4,zeros_e,-eye_h2,zeros_tail))
+    A5_adj=sps.hstack((A_adj_4-A_adj_3,zeros_e,-eye_h2,zeros_tail))
 
-    A_adj_4=np.hstack((np.multiply(new_adj,mask),np.zeros([nxny,n_x+1])))
-
-
-    A4_adj=np.hstack(
-                        (A_adj_3-A_adj_4,np.zeros([nxny,eLen]),
-                        -1*(np.zeros([nxny,h1Len+h2Len])+np.hstack((np.zeros([h1Len,h1Len]),np.eye(h2Len)))),
-                        np.zeros([nxny,WLen+uLen])
-                        )
-                    )
-
-    A5_adj=np.hstack(
-                        (A_adj_4-A_adj_3,np.zeros([nxny,eLen]),
-                        -1*(np.zeros([nxny,h1Len+h2Len])+np.hstack((np.zeros([h1Len,h1Len]),np.eye(h2Len)))),
-                        np.zeros([nxny,WLen+uLen])
-                        )
-                    )
-
-    A_x=np.vstack((A1,A2_adj,A3_adj,A4_adj,A5_adj))
+    A_x=sps.vstack((A1,A2_adj,A3_adj,A4_adj,A5_adj))
 
 
-    Aw1=np.hstack((-np.diag(np.array(Q_plus).squeeze()),np.zeros([WLen,eLen+h1Len+h2Len]),np.eye(WLen),np.zeros([WLen,uLen])))# wi-Qi_plus*xi <=0, i=1,...n
+    diag_plus=sps.diags(Q_plus.ravel(),format='csr')
+    diag_minus=sps.diags(Q_minus.ravel(),format='csr')
+    zeros_mid=sps.csr_matrix((WLen,eLen+h1Len+h2Len))
+    eye_W=sps.eye(WLen,format='csr')
+    zeros_u=sps.csr_matrix((WLen,uLen))
 
-    Aw2=np.hstack((np.diag(np.array(Q_minus).squeeze()),np.zeros([WLen,eLen+h1Len+h2Len]),-np.eye(WLen),np.zeros([WLen,uLen])))# -wi+Qi_minus*xi <=0, i=1,...n
+    Aw1=sps.hstack((-diag_plus,zeros_mid,eye_W,zeros_u))# wi-Qi_plus*xi <=0, i=1,...n
 
-    Q_=np.hstack((np.array(Q.todense()),np.zeros([WLen,eLen+h1Len+h2Len+WLen+uLen]))) # extend Q to nParam
+    Aw2=sps.hstack((diag_minus,zeros_mid,-eye_W,zeros_u))# -wi+Qi_minus*xi <=0, i=1,...n
 
-    Aw3=-Q_+np.hstack((-np.diag(np.array(Q_minus).squeeze()),np.zeros([WLen,eLen+h1Len+h2Len]),np.eye(WLen),np.zeros([WLen,uLen])))  # wi-(Q*X)[i]-Qi_minus*xi <=-Qi_minus
-    Aw4=Q_+np.hstack((np.diag(np.array(Q_plus).squeeze()),np.zeros([WLen,eLen+h1Len+h2Len]),-np.eye(WLen),np.zeros([WLen,uLen]))) # (Q*X)[i] + Qi_plus*xi- wi <=Qi_plus 
+    Q_=sps.hstack((Q,sps.csr_matrix((WLen,eLen+h1Len+h2Len+WLen+uLen)))) # extend Q to nParam
 
-    A=np.vstack((A_x,Aw1,Aw2,Aw3,Aw4))
+    Aw3=-Q_+sps.hstack((-diag_minus,zeros_mid,eye_W,zeros_u))  # wi-(Q*X)[i]-Qi_minus*xi <=-Qi_minus
+    Aw4=Q_+sps.hstack((diag_plus,zeros_mid,-eye_W,zeros_u)) # (Q*X)[i] + Qi_plus*xi- wi <=Qi_plus 
+
+    A=sps.vstack((A_x,Aw1,Aw2,Aw3,Aw4)).tocsr()
     lenb,_=A.shape
     b=np.vstack((np.zeros([lenb-2*WLen,1]),-Q_minus.transpose(),Q_plus.transpose()))
-    bounds=[(0,None) for i in range(nParam)]
     f=f.flatten()
     # Only the assignment variables W may be constrained to be integer.  The
     # auxiliary variables e, h1, h2, w and u are continuous by construction;
