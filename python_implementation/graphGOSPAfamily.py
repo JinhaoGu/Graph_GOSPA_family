@@ -9,17 +9,6 @@ import scipy.sparse as sps
 from scipy.optimize import linprog
 
 
-def signed_pth_root(value,p):
-    '''p-th root that keeps the sign of its argument.
-
-    Every cost component is non-negative for an integer assignment.  The
-    continuous relaxation (flag=0) can make assigned_edge_cost negative.  A
-    signed root keeps the components adding up to the total and reports the
-    negative value instead of returning nan.
-    '''
-    return np.sign(value)*np.abs(value)**(1/p)
-
-
 def computeLocCostPerTime(x,y,c,p):
     return np.linalg.norm(x-y)**p
 
@@ -65,11 +54,11 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     graph GOSPA metric family cost, localisation cost, miss node cost, false node cost,
     assigned edge cost, unassigned edge cost, half-assigned edge cost
 
-    Each returned value is the p-th root of the corresponding cost.  The costs
-    themselves add up, so the p-th powers of the components add up to the p-th
-    power of the total.  The returned values therefore add up to the total only
-    for p=1; for p>1 they do not, and only p=1 gives an additive decomposition
-    that can be read directly.
+    dxy is the p-th root of the total cost, so it is the metric itself.  The
+    six cost components are the costs themselves, not their p-th roots, so
+    they add up to dxy**p for every p.  They are only worth reading for p=1,
+    where the costs and the metric are in the same units and the components
+    add up to dxy directly.
 
     The decomposition is exact for an integer assignment (flag=1).  The
     continuous relaxation (flag=0) can return a fractional assignment, for
@@ -397,8 +386,7 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
         -0.5*epsilon**p * half_assigned_edges
 
     # A cost that is negative only by the solver's tolerance is floating point
-    # noise, and the p-th root magnifies it: a raw -1e-16 comes out as -1e-8
-    # for p=2.  Snap those to zero.  A cost that the relaxation makes genuinely
+    # noise, so snap it to zero.  A cost that the relaxation makes genuinely
     # negative is orders of magnitude larger and is left alone; measured over
     # random graphs, tolerance noise stays below 1e-12 of the total while a
     # genuine negative sits around 0.3 of it.
@@ -409,9 +397,8 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
         warnings.warn('The continuous relaxation returned a fractional '
                       'assignment. dxy is still a valid lower bound of the '
                       'metric, but the cost components are exact only for an '
-                      'integer assignment: assigned_edge_cost can be negative '
-                      'and the components then do not add up to dxy**p. Use '
-                      'flag=1 for an exact decomposition.',
+                      'integer assignment, and assigned_edge_cost can be '
+                      'negative. Use flag=1 for an exact decomposition.',
                       RuntimeWarning,stacklevel=2)
 
     # dxy and the node costs are non-negative by construction, so a negative
@@ -427,8 +414,7 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     unassigned_edge_cost=np.maximum(unassigned_edge_cost,0)
     half_assigned_edge_cost=np.maximum(half_assigned_edge_cost,0)
 
-    return signed_pth_root(dxy,p),signed_pth_root(loc_cost,p),\
-        signed_pth_root(miss_cost,p),signed_pth_root(false_cost,p),\
-        signed_pth_root(assigned_edge_cost,p),\
-        signed_pth_root(unassigned_edge_cost,p),\
-        signed_pth_root(half_assigned_edge_cost,p)
+    # Only dxy is rooted; it is the metric.  The components stay as costs so
+    # that they add up to dxy**p for every p.
+    return dxy**(1/p),loc_cost,miss_cost,false_cost,\
+        assigned_edge_cost,unassigned_edge_cost,half_assigned_edge_cost

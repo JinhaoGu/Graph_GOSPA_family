@@ -31,9 +31,9 @@ def random_graph(rng,n,dim=2,density=0.5):
     return rng.random((n,dim))*10,adj
 
 
-def raw(value,p):
-    '''Undo the signed p-th root that the metric applies to its output.'''
-    return np.sign(value)*np.abs(value)**p
+def total(value,p):
+    '''The total cost, which the components add up to.  dxy is its p-th root.'''
+    return value**p
 
 
 # p, epsilon, beta, eta.  Every pair satisfies 0<=beta<=eta<=1.
@@ -42,13 +42,12 @@ GRID=[(1,1,0.3,0.7),(2,3,0.3,0.7),(1,2,0.3,0.7),(2,1,1.0,1.0),
 
 
 def test_components_add_up_in_the_pth_power():
-    '''The p-th powers of the components add up to the p-th power of the total.
+    '''The components add up to dxy**p.
 
-    The function returns the p-th root of every cost, so the returned values
-    themselves add up only for p=1.  test_p_one_adds_up_directly covers that
-    case separately.
+    Only dxy is rooted, so the components add up to the total cost for every p.
+    They are only worth interpreting for p=1, where dxy is that total.
     '''
-    print('the p-th powers of the components add up (only p=1 adds up directly)')
+    print('the components add up to dxy**p')
     for p,epsilon,beta,eta in GRID:
         for flag in (0,1):
             rng=np.random.default_rng(7)
@@ -62,14 +61,14 @@ def test_components_add_up_in_the_pth_power():
                     Y_attr,Y_adj=random_graph(rng,n_y)
                     out=np.array(graph_gospa_metric_family(
                         X_attr,Y_attr,X_adj,Y_adj,3,p,epsilon,beta,eta,flag=flag))
-                    worst=max(worst,abs(raw(out[0],p)-raw(out[1:],p).sum()))
+                    worst=max(worst,abs(total(out[0],p)-out[1:].sum()))
             check(worst<1e-8,'p=%d epsilon=%g beta=%g eta=%g flag=%d: max error %.3e'
                   %(p,epsilon,beta,eta,flag,worst))
 
 
 def test_p_one_adds_up_directly():
-    '''For p=1 the returned values add up to the returned total.'''
-    print('for p=1 the returned values add up directly')
+    '''For p=1 the components add up to dxy itself, in the same units.'''
+    print('for p=1 the components add up to dxy directly')
     rng=np.random.default_rng(11)
     for flag in (0,1):
         worst=0.0
@@ -118,7 +117,7 @@ def test_nan_regression():
         out=np.array(graph_gospa_metric_family(
             X_attr,Y_attr,X_adj,Y_adj,3,2,3,BETA,ETA))
     check(not np.isnan(out).any(),'no nan: %s'%np.array2string(out,precision=4))
-    check(abs(raw(out[0],2)-raw(out[1:],2).sum())<1e-8,'the components add up')
+    check(abs(total(out[0],2)-out[1:].sum())<1e-8,'the components add up')
 
 
 def test_negative_component_warns():
@@ -167,7 +166,7 @@ def test_integer_solution_is_exact():
                 out=np.array(graph_gospa_metric_family(
                     X_attr,Y_attr,X_adj,Y_adj,3,p,epsilon,beta,eta,flag=1))
                 bad+=(out<-1e-9).any() or np.isnan(out).any()
-                worst=max(worst,abs(raw(out[0],p)-raw(out[1:],p).sum()))
+                worst=max(worst,abs(total(out[0],p)-out[1:].sum()))
     check(bad==0 and worst<1e-8,
           'bad components %d, max total error %.3e'%(bad,worst))
 

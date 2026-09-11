@@ -44,9 +44,38 @@ dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_a
 `beta=0` and `eta=0.5` reduces the metric family to the graph GOSPA metric
 of [2].
 
-Each returned value is the p-th root of the corresponding cost. The costs add
-up, so the p-th powers of the components add up to the p-th power of the total.
-The returned values therefore add up to the total only for `p=1`.
+`dxy` is the p-th root of the total cost, so it is the metric itself. The six
+cost components are the costs, not their p-th roots, so they add up to
+`dxy**p` for every `p`:
+
+```python
+dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_assigned_edge_cost=\
+    graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,flag=1)
+
+total=loc_cost+miss_cost+false_cost+assigned_edge_cost+unassigned_edge_cost+half_assigned_edge_cost
+assert abs(total-dxy**p)<1e-9
+```
+
+This follows the convention of the trajectory GOSPA implementation of [4],
+which also returns the metric as a p-th root and the components as costs. Take
+the root in your own code when you want the components in the same units as
+`dxy`, for example to plot them on one axis:
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+names=['Localisation','Missed','False','Assigned edge','Unassigned edge','Half assigned edge']
+costs=[loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_assigned_edge_cost]
+
+plt.bar(names,np.power(costs,1/p))
+plt.axhline(dxy,color='black',label='Total')
+plt.legend()
+```
+
+Note that the components add up before the root, not after: `sum(costs)**(1/p)`
+is `dxy`, while `sum(np.power(costs,1/p))` is not. Keeping the costs unrooted is
+what makes both readings available.
 
 ### Integer and relaxed assignments
 
