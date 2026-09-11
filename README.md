@@ -30,16 +30,42 @@ Y_adj=np.array([[0,1,1],[1,0,1],[1,1,0]])
 c=3 # penalty for missing or false nodes 
 p=1 # p-norm
 epsilon=1 # penalty for edge mismatch
-beta=1 # penalty for unassigned edges
-eta=0.5 # penalty for half-assigned edges
+beta=0.3 # penalty for unassigned edges
+eta=0.7 # penalty for half-assigned edges (0 <= beta <= eta <= 1)
 
 dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_assigned_edge_cost=\
     graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta)
 ```
+
+### Hyperparameters
+
+`beta` and `eta` must satisfy `0 <= beta <= eta <= 1`; the function raises a
+`ValueError` otherwise. The values above are the ones used in [1]. Setting
+`beta=0` and `eta=0.5` reduces the metric family to the graph GOSPA metric
+of [2].
+
+Each returned value is the p-th root of the corresponding cost. The costs add
+up, so the p-th powers of the components add up to the p-th power of the total.
+The returned values therefore add up to the total only for `p=1`.
+
+### Integer and relaxed assignments
 
 The optional `flag` argument controls the integrality of the linear program: `flag=0` (default) solves the continuous relaxation, while `flag=1` solves the binary/integer assignment problem.
 
 ```python
 dxy,loc_cost,miss_cost,false_cost,assigned_edge_cost,unassigned_edge_cost,half_assigned_edge_cost=\
     graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,flag=1)
+```
+
+`flag=0` solves a relaxation, so it is faster but returns a lower bound of the
+metric and can produce a fractional assignment. The cost components are exact
+only for an integer assignment: with a fractional one `assigned_edge_cost` can
+be negative, and the function issues a `RuntimeWarning` when that can happen.
+Use `flag=1` when you need an exact decomposition.
+
+## Tests
+
+```
+cd python_implementation
+python test_graphGOSPAfamily.py
 ```
