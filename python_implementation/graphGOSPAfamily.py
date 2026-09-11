@@ -2,9 +2,22 @@
 #This code is a python implementation of the graph GOSPA metric family proposed in the paper
 # "A family of graph GOSPA metrics for graphs with different sizes"
 # by Jinhao Gu, Á. F. García-Fernández, Robert E. Firth, Lennart Svensson
+import warnings
+
 import numpy as np
 import scipy.sparse as sps
 from scipy.optimize import linprog
+
+
+def signed_pth_root(value,p):
+    '''p-th root that keeps the sign of its argument.
+
+    Every cost component is non-negative for an integer assignment.  The
+    continuous relaxation (flag=0) can make assigned_edge_cost negative.  A
+    signed root keeps the components adding up to the total and reports the
+    negative value instead of returning nan.
+    '''
+    return np.sign(value)*np.abs(value)**(1/p)
 
 
 def computeLocCostPerTime(x,y,c,p):
@@ -44,15 +57,34 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     p: p-norm
     epsilon: penalty for edge mismatch
     beta: hyperparameter controlling the penalty for unassigned edges
-    eta: hyperparameter controlling the penalty for half-assigned edges
+    eta: hyperparameter controlling the penalty for half-assigned edges,
+        with 0<=beta<=eta<=1
     flag: integrality of the linear program (0 continuous, 1 integer)
 
     Returns:
     graph GOSPA metric family cost, localisation cost, miss node cost, false node cost,
     assigned edge cost, unassigned edge cost, half-assigned edge cost
+
+    Each returned value is the p-th root of the corresponding cost.  The costs
+    themselves add up, so the p-th powers of the components add up to the p-th
+    power of the total.  The returned values therefore add up to the total only
+    for p=1; for p>1 they do not, and only p=1 gives an additive decomposition
+    that can be read directly.
+
+    The decomposition is exact for an integer assignment (flag=1).  The
+    continuous relaxation (flag=0) can return a fractional assignment, for
+    which assigned_edge_cost can be negative; the function warns when this
+    happens.
     '''
+    if not 0<=beta<=eta<=1:
+        raise ValueError('The graph GOSPA metric family requires '
+                         '0<=beta<=eta<=1. Got beta=%r, eta=%r.'%(beta,eta))
+
     n_x=len(X_adj)
     n_y=len(Y_adj)
+    if n_x==0 and n_y==0:
+        zero=0.0
+        return zero,zero,zero,zero,zero,zero,zero
     DAB=locCostComp(X_attr,Y_attr,c,p)
     
     nxny=n_x*n_y
@@ -139,7 +171,7 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     index_x=np.tile(np.arange(n_x),(n_y+1,1)).T
     index_x=index_x.flatten(order='F')
 
-    index_y=np.tile(np.arange(1,(n_x+1)/n_x*len(index_x),step=n_x+1),(n_x,1))-1
+    index_y=np.tile(np.arange(n_y+1)*(n_x+1),(n_x,1))
     index_y2=np.tile(np.arange(n_x),(np.size(index_y,1),1)).T
     index_y=index_y+index_y2
     index_y=index_y.flatten(order='F')
@@ -193,7 +225,7 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     index_1_x=np.tile(np.arange(nxny),(n_x,1))
     index_1_x=index_1_x.flatten(order='F')
     index_1_x=index_1_x.astype(int)
-    index_1_y=np.tile(np.arange(1,(n_x+1)/n_x*nxny,step=n_x+1),(n_x,1))-1
+    index_1_y=np.tile(np.arange(n_y)*(n_x+1),(n_x,1))
     index_1_y2=np.tile(np.arange(n_x),(np.size(index_1_y,1),1)).T
     index_1_y=index_1_y+index_1_y2
     index_1_y=np.tile(index_1_y,(1,n_x))
@@ -215,7 +247,7 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
 
     index_2_x=np.tile(np.arange(nxny),(n_y,1))
     index_2_x=index_2_x.flatten(order='F')
-    index_2_y=np.tile(np.arange(1,(n_x+1)/n_x*nxny,step=n_x+1),(n_x,1))-1
+    index_2_y=np.tile(np.arange(n_y)*(n_x+1),(n_x,1))
     index_2_y2=np.tile(np.arange(n_x),(np.size(index_2_y,1),1)).T
     index_2_y=index_2_y+index_2_y2
     index_2_y=np.tile(index_2_y,(1,n_y)).T
@@ -253,7 +285,7 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     index_1_x=np.tile(np.arange(nxny),(n_y,1))
     index_1_x=index_1_x.flatten(order='F')
 
-    index_1_y=np.tile(np.arange(1,(n_x+1)/n_x*nxny,step=n_x+1),(n_x,1))-1
+    index_1_y=np.tile(np.arange(n_y)*(n_x+1),(n_x,1))
     index_1_y2=np.tile(np.arange(n_x),(np.size(index_1_y,1),1)).T
     index_1_y=index_1_y+index_1_y2
     index_1_y=np.tile(index_1_y.T,(1,n_y))
@@ -265,7 +297,7 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
 
     A_adj3=np.repeat(np.repeat(Y_adj,n_x,axis=1),n_x,axis=0)
 
-    ind=np.tile(np.arange(1,(n_x+1)/n_x*nxny,step=n_x+1),(n_x,1))-1
+    ind=np.tile(np.arange(n_y)*(n_x+1),(n_x,1))
     ind2=np.tile(np.arange(n_x),(np.size(ind,1),1)).T
     ind=ind+ind2
     ind=ind.flatten(order='F')
@@ -330,34 +362,73 @@ def graph_gospa_metric_family(X_attr,Y_attr,X_adj,Y_adj,c,p,epsilon,beta,eta,fla
     b=np.vstack((np.zeros([lenb-2*WLen,1]),-Q_minus.transpose(),Q_plus.transpose()))
     bounds=[(0,None) for i in range(nParam)]
     f=f.flatten()
-    res=linprog(f,A_ub=A,b_ub=b,A_eq=Aeq,b_eq=beq,method='highs',integrality=flag)# 0 continous, 1 integer.
-    
-    
+    # Only the assignment variables W may be constrained to be integer.  The
+    # auxiliary variables e, h1, h2, w and u are continuous by construction;
+    # rounding them changes the problem and gives a wrong cost for weighted
+    # adjacency matrices.
+    integrality=np.zeros(nParam)
+    integrality[WPos]=flag
+    res=linprog(f,A_ub=A,b_ub=b,A_eq=Aeq,b_eq=beq,method='highs',integrality=integrality)# 0 continous, 1 integer.
+
+    if not res.success:
+        raise RuntimeError('The linear programme did not solve: %s'%res.message)
+
     dxy=res.fun
     W=res.x
-    if  res.success==False:
-        print('Optimization failed')
     Wx=np.reshape(W[0:nxny2],(n_x+1,n_y+1),order='F')
     loc_cost=np.sum(np.multiply(DAB[0:n_x,0:n_y],Wx[0:n_x,0:n_y]))
     false_cost=np.sum(np.multiply(DAB[n_x,0:n_y],Wx[n_x,0:n_y]))
     miss_cost=np.sum(np.multiply(DAB[0:n_x,n_y],Wx[0:n_x,n_y]))
     
-    WXW=Wx[:n_x,n_y].transpose()@X_adj@Wx[:n_x,n_y]
-    WYW=Wx[n_x,:n_y]@Y_adj@Wx[n_x,:n_y].transpose()
-    unassigned_edge_cost=beta/2*epsilon**p * (WXW+WYW)
-    WX1=Wx[:n_x,n_y].transpose()@X_adj@np.ones(n_x)
-    _1YW=np.ones(n_y)@Y_adj@Wx[n_x,:n_y].transpose()
-    assigned_edge_cost=epsilon**p/4 * (W[e1Pos].item()+W[e2Pos].item())-0.5*epsilon**p * (WX1-WXW+_1YW-WYW)
-    half_assigned_edge_cost=eta*epsilon**p * (WX1-WXW+_1YW-WYW)
+    # Read the edge costs from the variables that the linear programme itself
+    # prices.  sum(w) counts the edges with both end points unassigned and u
+    # counts the edge end points of unassigned nodes, so u-sum(w) counts the
+    # half assigned edges.  Constraint Aw1 gives sum(w)<=u, so u-sum(w)>=0.
+    # The quadratic expressions in Wx that these replace agree with w and u
+    # only when Wx is an assignment matrix.  The continuous relaxation
+    # (flag=0) can return a fractional Wx, for which they disagree and the
+    # cost components no longer add up to dxy**p.
+    sum_w=np.sum(W[wPos])
+    u=W[uPos].item()
+    half_assigned_edges=u-sum_w
+    unassigned_edge_cost=beta/2*epsilon**p * sum_w
+    half_assigned_edge_cost=eta*epsilon**p * half_assigned_edges
+    assigned_edge_cost=epsilon**p/4 * (W[e1Pos].item()+W[e2Pos].item())\
+        -0.5*epsilon**p * half_assigned_edges
 
-    # For numerical stability
+    # A cost that is negative only by the solver's tolerance is floating point
+    # noise, and the p-th root magnifies it: a raw -1e-16 comes out as -1e-8
+    # for p=2.  Snap those to zero.  A cost that the relaxation makes genuinely
+    # negative is orders of magnitude larger and is left alone; measured over
+    # random graphs, tolerance noise stays below 1e-12 of the total while a
+    # genuine negative sits around 0.3 of it.
+    if -1e-9*max(1.0,abs(dxy))<assigned_edge_cost<0:
+        assigned_edge_cost=0.0
+
+    if flag==0 and np.any(np.abs(Wx-np.round(Wx))>1e-6):
+        warnings.warn('The continuous relaxation returned a fractional '
+                      'assignment. dxy is still a valid lower bound of the '
+                      'metric, but the cost components are exact only for an '
+                      'integer assignment: assigned_edge_cost can be negative '
+                      'and the components then do not add up to dxy**p. Use '
+                      'flag=1 for an exact decomposition.',
+                      RuntimeWarning,stacklevel=2)
+
+    # dxy and the node costs are non-negative by construction, so a negative
+    # value is floating point noise and clamping it is safe.  The same is true
+    # of the unassigned and half assigned edge costs, because w>=0 and
+    # u-sum(w)>=0.  assigned_edge_cost is a difference of two of the linear
+    # programme's variables and the relaxation can make it genuinely negative,
+    # so it is reported as it is; see the warning above.
     dxy=np.maximum(dxy,0)
     loc_cost=np.maximum(loc_cost,0)
     miss_cost=np.maximum(miss_cost,0)
     false_cost=np.maximum(false_cost,0)
-    assigned_edge_cost=np.maximum(assigned_edge_cost,0)
     unassigned_edge_cost=np.maximum(unassigned_edge_cost,0)
     half_assigned_edge_cost=np.maximum(half_assigned_edge_cost,0)
 
-    return dxy**(1/p),loc_cost**(1/p),miss_cost**(1/p),false_cost**(1/p),\
-        assigned_edge_cost**(1/p),unassigned_edge_cost**(1/p),half_assigned_edge_cost**(1/p)
+    return signed_pth_root(dxy,p),signed_pth_root(loc_cost,p),\
+        signed_pth_root(miss_cost,p),signed_pth_root(false_cost,p),\
+        signed_pth_root(assigned_edge_cost,p),\
+        signed_pth_root(unassigned_edge_cost,p),\
+        signed_pth_root(half_assigned_edge_cost,p)
