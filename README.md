@@ -4,9 +4,9 @@ This repository contains Python code with the linear programming implementation 
 
 The graph GOSPA metric family contains the graph GOSPA metric of [2] as a special case, which itself is an extension of the GOSPA metric for sets of objects proposed in [3], also extended for sets of trajectories in [4].
 
-[1] J. Gu, A. F. García-Fernández, Robert E. Firth, L. Svensson, “A family of graph GOSPA metrics for graphs with different sizes” (https://arxiv.org/abs/2506.17316)
+[1] J. Gu, A. F. García-Fernández, Robert E. Firth, L. Svensson, “A family of graph GOSPA metrics for graphs with different sizes”, IEEE Transactions on Signal and Information Processing over Networks, (https://arxiv.org/abs/2506.17316).
 
-[2] J. Gu, A. F. García-Fernández, Robert E. Firth, L. Svensson, “Graph GOSPA metric: a metric to measure the discrepancy between graphs of different sizes” in IEEE Transactions on Signal Processing, 2024 (https://arxiv.org/abs/2311.07596)
+[2] J. Gu, A. F. García-Fernández, Robert E. Firth, L. Svensson, “Graph GOSPA metric: a metric to measure the discrepancy between graphs of different sizes” in IEEE Transactions on Signal Processing, 2024 (https://arxiv.org/abs/2311.07596).
 
 [3] A. S. Rahmathullah, Á. F. García-Fernández and L. Svensson, "Generalized optimal sub-pattern assignment metric," 2017 20th International Conference on Information Fusion (Fusion), Xi'an, China, 2017, pp. 1-8, doi: 10.23919/ICIF.2017.8009645.
 
