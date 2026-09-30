@@ -1,7 +1,7 @@
 #Author: Jinhao Gu
 #This code is a python implementation of the graph GOSPA metric family proposed in the paper
-# "A family of graph GOSPA metrics for graphs with different sizes"
-# by Jinhao Gu, Á. F. García-Fernández, Robert E. Firth, Lennart Svensson
+# J. Gu, Á. F. García-Fernández, R. E. Firth and L. Svensson, "A Family of Graph GOSPA Metrics for Graphs With Different Sizes," in IEEE Transactions on Signal and Information Processing over Networks, doi: 10.1109/TSIPN.2026.3735539.
+
 import warnings
 
 import numpy as np
